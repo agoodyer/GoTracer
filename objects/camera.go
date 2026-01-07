@@ -160,6 +160,90 @@ func (c *Camera) Render(world Hittable) {
 
 }
 
+// RenderToBuffer renders the scene and returns RGBA pixel data as []byte
+// This is used for WASM builds where we can't write to files
+func (c *Camera) RenderToBuffer(world Hittable) []byte {
+	c.initialize()
+
+	// Create pixel buffer (RGBA format for HTML canvas)
+	pixels := make([]byte, c.Image_width*c.image_height*4)
+
+	for j := 0; j < c.image_height; j++ {
+		for i := 0; i < c.Image_width; i++ {
+			pixel_color := NewColor(0, 0, 0)
+
+			for sample := 0; sample < c.Sample_per_pixel; sample++ {
+				r := c.get_ray(i, j)
+				pixel_color = pixel_color.Add(ray_color(c, &r, c.Max_depth, world))
+			}
+
+			// Convert to RGBA bytes
+			idx := (j*c.Image_width + i) * 4
+			r, g, b := Color_to_rgb(pixel_color, c.Sample_per_pixel)
+			pixels[idx] = r
+			pixels[idx+1] = g
+			pixels[idx+2] = b
+			pixels[idx+3] = 255 // Alpha
+		}
+	}
+
+	return pixels
+}
+
+// RenderProgressiveWASM renders pixels in random order with periodic callbacks for live updates
+// This creates a "reveal" effect where the image progressively fills in
+func (c *Camera) RenderProgressiveWASM(world Hittable, pixels []byte, updateCallback func(), updatePercent int) {
+	c.initialize()
+	totalPixels := c.Image_width * c.image_height
+
+	// Create shuffled pixel indices using Fisher-Yates algorithm
+	indices := make([]int, totalPixels)
+	for i := range indices {
+		indices[i] = i
+	}
+	rand.Shuffle(len(indices), func(i, j int) {
+		indices[i], indices[j] = indices[j], indices[i]
+	})
+
+	// Calculate update interval (default to every 1% if not specified)
+	if updatePercent <= 0 {
+		updatePercent = 1
+	}
+	updateInterval := totalPixels * updatePercent / 100
+	if updateInterval < 1 {
+		updateInterval = 1
+	}
+
+	// Render pixels in shuffled order
+	for count, pixelIdx := range indices {
+		i := pixelIdx % c.Image_width
+		j := pixelIdx / c.Image_width
+
+		// Render single pixel with all samples
+		pixel_color := NewColor(0, 0, 0)
+		for sample := 0; sample < c.Sample_per_pixel; sample++ {
+			r := c.get_ray(i, j)
+			pixel_color = pixel_color.Add(ray_color(c, &r, c.Max_depth, world))
+		}
+
+		// Write to shared buffer
+		idx := pixelIdx * 4
+		r, g, b := Color_to_rgb(pixel_color, c.Sample_per_pixel)
+		pixels[idx] = r
+		pixels[idx+1] = g
+		pixels[idx+2] = b
+		pixels[idx+3] = 255
+
+		// Periodic update callback
+		if (count+1)%updateInterval == 0 {
+			updateCallback()
+		}
+	}
+
+	// Final callback to ensure last pixels are shown
+	updateCallback()
+}
+
 type Chunk struct {
 	world *Hittable
 	rect  image.Rectangle
@@ -310,3 +394,19 @@ func (c *Camera) pixel_sample_square() Vec3 {
 	py := -0.5 + rand.Float64()
 	return c.pixel_delta_u.Mult(px).Add(c.pixel_delta_v.Mult(py))
 }
+
+// InitializeForWASM is an exported wrapper for initialize() for use in WASM
+func (c *Camera) InitializeForWASM() {
+	c.initialize()
+}
+
+// GetRay is an exported wrapper for get_ray() for use in WASM
+func (c *Camera) GetRay(i, j int) Ray {
+	return c.get_ray(i, j)
+}
+
+// RayColor is an exported wrapper for ray_color() for use in WASM
+func (c *Camera) RayColor(r *Ray, depth int, world Hittable) Color {
+	return ray_color(c, r, depth, world)
+}
+
