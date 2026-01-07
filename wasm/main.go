@@ -34,7 +34,7 @@ var renderState struct {
 // getScenes returns a list of available scene names
 func getScenes() js.Func {
 	return js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		return []interface{}{"random_spheres", "quads"}
+		return []interface{}{"random_spheres", "quads", "boxes", "planet", "crystals"}
 	})
 }
 
@@ -76,6 +76,12 @@ func render() js.Func {
 		switch currentScene {
 		case "quads":
 			world, cam = scenes.Quads()
+		case "boxes":
+			world, cam = scenes.Boxes()
+		case "planet":
+			world, cam = createPlanetScene()
+		case "crystals":
+			world, cam = scenes.CrystalCave()
 		default:
 			world, cam = scenes.RandomSpheres()
 		}
@@ -126,6 +132,12 @@ func initProgressiveRender() js.Func {
 		switch currentScene {
 		case "quads":
 			world, cam = scenes.Quads()
+		case "boxes":
+			world, cam = scenes.Boxes()
+		case "planet":
+			world, cam = createPlanetScene()
+		case "crystals":
+			world, cam = scenes.CrystalCave()
 		default:
 			world, cam = scenes.RandomSpheres()
 		}
@@ -358,6 +370,59 @@ func renderChunk() js.Func {
 
 		return jsArray
 	})
+}
+
+// createPlanetScene creates the planet scene using embedded textures
+func createPlanetScene() (Hittable_list, Camera) {
+	var world Hittable_list
+
+	cam := NewCamera()
+	cam.Aspect_ratio = 16.0 / 9.0
+	cam.Image_width = 400
+	cam.Sample_per_pixel = 100
+	cam.Max_depth = 30
+	cam.Vfov = 68
+	cam.Look_from = NewPoint3(14, 12, -5)
+	cam.Look_at = NewPoint3(0, -2, 0)
+	cam.Vup = NewVec3(0, 1, 0)
+	cam.Defocus_angle = 0.0
+	cam.Focus_dist = 10.0
+	cam.Background = NewColor(0.0, 0.0, 0.0085)
+	cam.Log_scanlines = false
+
+	// Load embedded textures
+	earthData, err1 := GetEmbeddedAsset("earthmap.jpg")
+	moonData, err2 := GetEmbeddedAsset("moon.jpg")
+
+	if err1 != nil || err2 != nil {
+		// Fallback to colored spheres if textures fail
+		earthMat := NewLambertian(NewColor(0.1, 0.3, 0.8))
+		moonMat := NewLambertian(NewColor(0.5, 0.5, 0.5))
+		
+		s1 := NewSphere(NewPoint3(0, -10, 0), 8.0, &earthMat)
+		s2 := NewSphere(NewPoint3(0, 6, -5), 2.0, &moonMat)
+		world.Add(&s1)
+		world.Add(&s2)
+	} else {
+		// Create textured spheres
+		earthTex := NewImage_textureFromBytes(earthData)
+		earthSurface := NewTexturedLambertian(&earthTex)
+		
+		moonTex := NewImage_textureFromBytes(moonData)
+		moonSurface := NewTexturedLambertian(&moonTex)
+
+		s1 := NewSphere(NewPoint3(0, -10, 0), 8.0, &earthSurface)
+		s2 := NewSphere(NewPoint3(0, 6, -5), 2.0, &moonSurface)
+		world.Add(&s1)
+		world.Add(&s2)
+	}
+
+	// Add sun light
+	sunSurface := NewDiffuse_light(NewColor(18, 18, 18))
+	s3 := NewSphere(NewPoint3(1400, 1600, 3400), 2000, &sunSurface)
+	world.Add(&s3)
+
+	return world, cam
 }
 
 func main() {
