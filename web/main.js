@@ -63,48 +63,57 @@ async function renderStandard(width, height, samples, depth) {
     showStatus(`Rendered in ${elapsed}s`, 'success');
 }
 
-// Render the scene with progressive updates (chunked)
-async function renderProgressiveChunked(width, height, samples, depth) {
+// Hybrid progressive: chunked updates within each sample pass
+// This provides continuous visual feedback - no stasis periods
+async function renderHybridProgressive(width, height, samples, depth) {
     const startTime = performance.now();
 
-    // Initialize the render (sets up scene, BVH, shuffled indices)
-    const totalPixels = goInitProgressiveRender(width, height, samples, depth);
-    console.log(`Progressive render initialized: ${totalPixels} pixels`);
+    // Initialize the render (sets up scene, BVH, accumulator)
+    const info = goInitProgressiveRender(width, height, samples, depth);
+    const totalPixels = info.totalPixels;
+    console.log(`Hybrid render initialized: ${totalPixels} pixels, ${samples} samples`);
 
-    // Chunk size: render 1% of pixels per chunk for ~100 updates
-    const chunkSize = Math.max(1, Math.ceil(totalPixels / 100));
-    let renderedPixels = 0;
+    // Chunk size: update ~50 times per sample (2% of pixels per chunk)
+    const chunksPerSample = 50;
+    const chunkSize = Math.max(1, Math.ceil(totalPixels / chunksPerSample));
 
-    // Create ImageData once for efficiency
     let imageData = null;
+    let totalChunks = samples * Math.ceil(totalPixels / chunkSize);
+    let currentChunk = 0;
 
-    // Render in chunks with yields to browser
-    while (renderedPixels < totalPixels) {
-        const endIdx = Math.min(renderedPixels + chunkSize, totalPixels);
+    // Outer loop: for each sample
+    for (let sample = 1; sample <= samples; sample++) {
+        // Inner loop: chunked rendering within this sample
+        for (let startIdx = 0; startIdx < totalPixels; startIdx += chunkSize) {
+            const endIdx = Math.min(startIdx + chunkSize, totalPixels);
 
-        // Render this chunk (Go call)
-        const pixels = goRenderChunk(renderedPixels, endIdx);
+            // Render 1 sample for this chunk of pixels
+            const pixels = goRenderSampleChunk(startIdx, endIdx, sample);
 
-        // Create/update ImageData and paint to canvas
-        if (!imageData) {
-            imageData = new ImageData(pixels, width, height);
-        } else {
-            imageData.data.set(pixels);
+            // Update canvas
+            if (!imageData) {
+                imageData = new ImageData(pixels, width, height);
+            } else {
+                imageData.data.set(pixels);
+            }
+            ctx.putImageData(imageData, 0, 0);
+
+            currentChunk++;
+
+            // Update status periodically (not every chunk to avoid spam)
+            if (currentChunk % 10 === 0 || startIdx === 0) {
+                const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+                const percent = Math.round((currentChunk / totalChunks) * 100);
+                showStatus(`Sample ${sample}/${samples} - ${percent}% (${elapsed}s)`);
+            }
+
+            // Yield to browser for repaint
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
-        ctx.putImageData(imageData, 0, 0);
-
-        // Update progress
-        renderedPixels = endIdx;
-        const percent = Math.round((renderedPixels / totalPixels) * 100);
-        const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-        showStatus(`Rendering... ${percent}% (${elapsed}s)`);
-
-        // Yield to browser for repaint (crucial for live updates!)
-        await new Promise(resolve => setTimeout(resolve, 0));
     }
 
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-    showStatus(`Rendered in ${elapsed}s`, 'success');
+    showStatus(`Rendered in ${elapsed}s (${samples} samples)`, 'success');
 }
 
 // Main render function
@@ -143,7 +152,8 @@ async function render() {
 
     try {
         if (progressive) {
-            await renderProgressiveChunked(width, height, samples, depth);
+            // Use hybrid progressive for continuous updates
+            await renderHybridProgressive(width, height, samples, depth);
         } else {
             await renderStandard(width, height, samples, depth);
         }

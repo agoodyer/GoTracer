@@ -34,9 +34,7 @@ func Quads() (Hittable_list, Camera) {
 	teal := NewLambertian(NewColor(0.2, 0.8, 0.8))
 
 	q1 := NewQuad(NewPoint3(-3, -2, 5), NewVec3(0, 0, -4), NewVec3(0, 4, 0), &red)
-	// q2 := NewTri(NewPoint3(0, 0, 0), NewVec3(3, 3, 0), NewVec3(0, 2, 0), &green)
-
-	q2 := Triangle(NewPoint3(1, 0, 0), NewPoint3(0, 1, 0), NewPoint3(0, 0, 1), &green)
+	q2 := NewQuad(NewPoint3(-2, -2, 1), NewVec3(4, 0, 0), NewVec3(0, 4, 0), &green) // Back wall
 	q3 := NewQuad(NewPoint3(3, -2, 1), NewVec3(0, 0, 4), NewVec3(0, 4, 0), &blue)
 	q4 := NewQuad(NewPoint3(-2, 3, 1), NewVec3(4, 0, 0), NewVec3(0, 0, 4), &orange)
 	q5 := NewQuad(NewPoint3(-2, -3, 5), NewVec3(4, 0, 0), NewVec3(0, 0, -4), &teal)

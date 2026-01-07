@@ -3,6 +3,7 @@
 package main
 
 import (
+	"math"
 	"math/rand"
 	"syscall/js"
 
@@ -14,18 +15,20 @@ import (
 
 var currentScene string = "random_spheres"
 
-// Render state for chunked progressive rendering
+// Render state for progressive rendering
 var renderState struct {
-	cam         *Camera
-	bvh         Hittable
-	pixels      []byte
-	indices     []int
-	width       int
-	height      int
-	samples     int
-	depth       int
-	totalPixels int
-	initialized bool
+	cam           *Camera
+	bvh           Hittable
+	pixels        []byte     // RGBA output buffer
+	accumulator   []float64  // RGB accumulator (3 floats per pixel)
+	indices       []int      // Shuffled pixel indices
+	width         int
+	height        int
+	samples       int
+	depth         int
+	totalPixels   int
+	currentSample int  // For iterative refinement
+	initialized   bool
 }
 
 // getScenes returns a list of available scene names
@@ -96,7 +99,7 @@ func render() js.Func {
 	})
 }
 
-// initProgressiveRender initializes the render state and returns shuffled indices
+// initProgressiveRender initializes the render state for iterative refinement
 func initProgressiveRender() js.Func {
 	return js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		width := 200
@@ -138,7 +141,7 @@ func initProgressiveRender() js.Func {
 		// Build BVH
 		bvh := NewBvh(world.Objects)
 
-		// Create shuffled indices
+		// Create shuffled indices for random pixel order within each sample pass
 		totalPixels := width * height
 		indices := make([]int, totalPixels)
 		for i := range indices {
@@ -152,19 +155,157 @@ func initProgressiveRender() js.Func {
 		renderState.cam = &cam
 		renderState.bvh = &bvh
 		renderState.pixels = make([]byte, totalPixels*4)
+		renderState.accumulator = make([]float64, totalPixels*3) // RGB per pixel
 		renderState.indices = indices
 		renderState.width = width
 		renderState.height = height
 		renderState.samples = samples
 		renderState.depth = depth
 		renderState.totalPixels = totalPixels
+		renderState.currentSample = 0
 		renderState.initialized = true
 
-		return totalPixels
+		// Return info: totalPixels and totalSamples
+		return map[string]interface{}{
+			"totalPixels":  totalPixels,
+			"totalSamples": samples,
+		}
 	})
 }
 
-// renderChunk renders a chunk of pixels and returns the updated buffer
+// renderSamplePass renders ONE sample for all pixels and returns the accumulated result
+// This enables iterative refinement - image progressively denoises
+func renderSamplePass() js.Func {
+	return js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		if !renderState.initialized {
+			return nil
+		}
+
+		// Increment current sample
+		renderState.currentSample++
+		sampleNum := renderState.currentSample
+
+		// Render 1 sample for each pixel (in shuffled order for visual appeal)
+		for _, pixelIdx := range renderState.indices {
+			x := pixelIdx % renderState.width
+			y := pixelIdx / renderState.width
+
+			// Get one ray sample for this pixel
+			r := renderState.cam.GetRay(x, y)
+			color := renderState.cam.RayColor(&r, renderState.depth, renderState.bvh)
+
+			// Accumulate to float buffer (RGB)
+			accIdx := pixelIdx * 3
+			renderState.accumulator[accIdx] += color.X()
+			renderState.accumulator[accIdx+1] += color.Y()
+			renderState.accumulator[accIdx+2] += color.Z()
+
+			// Convert accumulated value to display RGB
+			// Average = accumulated / sampleNum, then gamma correct
+			scale := 1.0 / float64(sampleNum)
+			rVal := math.Sqrt(renderState.accumulator[accIdx] * scale)
+			gVal := math.Sqrt(renderState.accumulator[accIdx+1] * scale)
+			bVal := math.Sqrt(renderState.accumulator[accIdx+2] * scale)
+
+			// Clamp and convert to bytes
+			pixIdx := pixelIdx * 4
+			renderState.pixels[pixIdx] = byte(256 * clamp(rVal, 0, 0.999))
+			renderState.pixels[pixIdx+1] = byte(256 * clamp(gVal, 0, 0.999))
+			renderState.pixels[pixIdx+2] = byte(256 * clamp(bVal, 0, 0.999))
+			renderState.pixels[pixIdx+3] = 255
+		}
+
+		// Return updated pixel buffer
+		jsArray := js.Global().Get("Uint8ClampedArray").New(len(renderState.pixels))
+		js.CopyBytesToJS(jsArray, renderState.pixels)
+
+		return jsArray
+	})
+}
+
+// renderSampleChunk renders 1 sample for a CHUNK of pixels (for hybrid progressive)
+// Args: startIdx, endIdx, sampleNum (which sample this is for)
+// This allows continuous updates within each sample pass
+func renderSampleChunk() js.Func {
+	return js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		if !renderState.initialized {
+			return nil
+		}
+
+		startIdx := 0
+		endIdx := renderState.totalPixels
+		sampleNum := renderState.currentSample
+
+		if len(args) >= 1 {
+			startIdx = args[0].Int()
+		}
+		if len(args) >= 2 {
+			endIdx = args[1].Int()
+		}
+		if len(args) >= 3 {
+			sampleNum = args[2].Int()
+		}
+
+		// Clamp indices
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		if endIdx > renderState.totalPixels {
+			endIdx = renderState.totalPixels
+		}
+
+		// Update current sample tracking
+		renderState.currentSample = sampleNum
+
+		// Render 1 sample for this chunk of pixels
+		for i := startIdx; i < endIdx; i++ {
+			pixelIdx := renderState.indices[i]
+			x := pixelIdx % renderState.width
+			y := pixelIdx / renderState.width
+
+			// Get one ray sample for this pixel
+			r := renderState.cam.GetRay(x, y)
+			color := renderState.cam.RayColor(&r, renderState.depth, renderState.bvh)
+
+			// Accumulate to float buffer (RGB)
+			accIdx := pixelIdx * 3
+			renderState.accumulator[accIdx] += color.X()
+			renderState.accumulator[accIdx+1] += color.Y()
+			renderState.accumulator[accIdx+2] += color.Z()
+
+			// Convert accumulated value to display RGB
+			scale := 1.0 / float64(sampleNum)
+			rVal := math.Sqrt(renderState.accumulator[accIdx] * scale)
+			gVal := math.Sqrt(renderState.accumulator[accIdx+1] * scale)
+			bVal := math.Sqrt(renderState.accumulator[accIdx+2] * scale)
+
+			// Clamp and convert to bytes
+			pixIdx := pixelIdx * 4
+			renderState.pixels[pixIdx] = byte(256 * clamp(rVal, 0, 0.999))
+			renderState.pixels[pixIdx+1] = byte(256 * clamp(gVal, 0, 0.999))
+			renderState.pixels[pixIdx+2] = byte(256 * clamp(bVal, 0, 0.999))
+			renderState.pixels[pixIdx+3] = 255
+		}
+
+		// Return updated pixel buffer
+		jsArray := js.Global().Get("Uint8ClampedArray").New(len(renderState.pixels))
+		js.CopyBytesToJS(jsArray, renderState.pixels)
+
+		return jsArray
+	})
+}
+
+func clamp(x, min, max float64) float64 {
+	if x < min {
+		return min
+	}
+	if x > max {
+		return max
+	}
+	return x
+}
+
+// renderChunk renders a chunk of pixels (for per-pixel progressive mode)
 func renderChunk() js.Func {
 	return js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		if !renderState.initialized {
@@ -189,7 +330,7 @@ func renderChunk() js.Func {
 			endIdx = renderState.totalPixels
 		}
 
-		// Render this chunk of pixels
+		// Render this chunk of pixels (all samples per pixel)
 		for i := startIdx; i < endIdx; i++ {
 			pixelIdx := renderState.indices[i]
 			x := pixelIdx % renderState.width
@@ -227,6 +368,8 @@ func main() {
 	js.Global().Set("goRender", render())
 	js.Global().Set("goInitProgressiveRender", initProgressiveRender())
 	js.Global().Set("goRenderChunk", renderChunk())
+	js.Global().Set("goRenderSamplePass", renderSamplePass())
+	js.Global().Set("goRenderSampleChunk", renderSampleChunk())
 
 	// Log that WASM is ready
 	js.Global().Get("console").Call("log", "Go WASM raytracer initialized")
