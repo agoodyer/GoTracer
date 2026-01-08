@@ -462,7 +462,7 @@ func createFrogScene() (Hittable_list, Camera) {
 	cam.Look_from = NewPoint3(20, 20, 40)
 	cam.Look_at = NewPoint3(0, 5, 0)
 	cam.Vup = NewVec3(0, 1, 0)
-	cam.Defocus_angle = 0.0
+	cam.Defocus_angle = 0.6
 	cam.Focus_dist = 10.0
 	cam.Background = NewColor(0.7, 0.8, 1.0) // Skyish background
 	cam.Log_scanlines = false
@@ -502,7 +502,7 @@ func createFrogScene() (Hittable_list, Camera) {
 	}
 
 	// Ground plane
-	groundMat := NewLambertian(NewColor(0.25, 0.15, 0.0))
+	groundMat := NewLambertian(NewColor(0.3, 0.3, 0.6))
 	ground := NewSphere(NewPoint3(0, -1000, 0), 1000, &groundMat)
 	world.Add(&ground)
 
