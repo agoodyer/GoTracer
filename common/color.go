@@ -46,3 +46,26 @@ func Write_color(pixel_color Color, samples_per_pixel int, img *image.RGBA, i in
 func linear_to_gamma(linear_component float64) float64 {
 	return math.Sqrt(linear_component)
 }
+
+// Color_to_rgb converts a Color to RGB bytes, applying gamma correction
+func Color_to_rgb(pixel_color Color, samples_per_pixel int) (r, g, b uint8) {
+	red := pixel_color.X()
+	green := pixel_color.Y()
+	blue := pixel_color.Z()
+
+	scale := 1.0 / float64(samples_per_pixel)
+
+	red *= scale
+	green *= scale
+	blue *= scale
+
+	red = linear_to_gamma(red)
+	green = linear_to_gamma(green)
+	blue = linear_to_gamma(blue)
+
+	intensity := NewInterval(0.000, 0.999)
+
+	return uint8(256 * intensity.Clamp(red)),
+		uint8(256 * intensity.Clamp(green)),
+		uint8(256 * intensity.Clamp(blue))
+}

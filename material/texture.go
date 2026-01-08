@@ -1,6 +1,7 @@
 package material
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -115,6 +116,20 @@ func NewImage_texture(path string) Image_texture {
 
 	return Image_texture{img: &img}
 
+}
+
+// NewImage_textureFromBytes creates a texture from embedded byte data (for WASM)
+func NewImage_textureFromBytes(data []byte) Image_texture {
+	reader := bytes.NewReader(data)
+	
+	// Try decoding as any supported format
+	img, _, err := image.Decode(reader)
+	if err != nil {
+		fmt.Print("WARNING: Failed to decode embedded image: ", err)
+		return Image_texture{img: &img}
+	}
+	
+	return Image_texture{img: &img}
 }
 
 func (tex *Image_texture) Value(u float64, v float64, p *Point3) Color {
