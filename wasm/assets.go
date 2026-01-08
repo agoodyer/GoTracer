@@ -6,7 +6,7 @@ import (
 	"embed"
 )
 
-//go:embed assets/earthmap.jpg assets/moon.jpg
+//go:embed assets/earthmap.jpg assets/moon.jpg assets/lowpolyfrog.stl
 var embeddedAssets embed.FS
 
 // GetEmbeddedAsset retrieves embedded asset data by name

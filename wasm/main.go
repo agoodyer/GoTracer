@@ -3,6 +3,8 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"math"
 	"math/rand"
 	"syscall/js"
@@ -34,7 +36,7 @@ var renderState struct {
 // getScenes returns a list of available scene names
 func getScenes() js.Func {
 	return js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		return []interface{}{"random_spheres", "quads", "boxes", "planet", "crystals"}
+		return []interface{}{"random_spheres", "quads", "boxes", "planet", "crystals", "frog"}
 	})
 }
 
@@ -82,6 +84,8 @@ func render() js.Func {
 			world, cam = createPlanetScene()
 		case "crystals":
 			world, cam = scenes.CrystalCave()
+		case "frog":
+			world, cam = createFrogScene()
 		default:
 			world, cam = scenes.RandomSpheres()
 		}
@@ -138,6 +142,8 @@ func initProgressiveRender() js.Func {
 			world, cam = createPlanetScene()
 		case "crystals":
 			world, cam = scenes.CrystalCave()
+		case "frog":
+			world, cam = createFrogScene()
 		default:
 			world, cam = scenes.RandomSpheres()
 		}
@@ -441,4 +447,69 @@ func main() {
 
 	// Keep the program running
 	<-c
+}
+
+// createFrogScene creates the frog scene using embedded STL
+func createFrogScene() (Hittable_list, Camera) {
+	var world Hittable_list
+
+	cam := NewCamera()
+	cam.Aspect_ratio = 16.0 / 9.0
+	cam.Image_width = 400
+	cam.Sample_per_pixel = 100
+	cam.Max_depth = 30
+	cam.Vfov = 40
+	cam.Look_from = NewPoint3(20, 20, 40)
+	cam.Look_at = NewPoint3(0, 5, 0)
+	cam.Vup = NewVec3(0, 1, 0)
+	cam.Defocus_angle = 0.0
+	cam.Focus_dist = 10.0
+	cam.Background = NewColor(0.7, 0.8, 1.0) // Skyish background
+	cam.Log_scanlines = false
+
+	// Load embedded asset
+	frogData, err := GetEmbeddedAsset("lowpolyfrog.stl")
+	
+	if err == nil {
+		frogMat := NewLambertian(NewColor(0.2, 0.5, 0.2)) // Green frog
+		
+		// Create reader from bytes
+		reader := bytes.NewReader(frogData)
+		
+
+		// Parse mesh
+		frogMesh := NewMeshFromReader(reader, &frogMat, 0.5) // Scale down
+		
+		fmt.Printf("Loaded frog mesh with %d triangles\n", len(frogMesh.Objects))
+		js.Global().Get("console").Call("log", fmt.Sprintf("Loaded frog mesh with %d triangles", len(frogMesh.Objects)))
+
+		// Create BVH for mesh acceleration
+		frogBvh := NewBvh(frogMesh.Objects)
+
+		// Rotate to face camera (Camera at 20, 20, 40)
+		rotatedFrogY := NewRotationZ(&frogBvh, 20.0)
+		rotatedFrogX := NewRotationX(&rotatedFrogY, -270.0) // Rotate -90 on X so it sits flat if it was standing upright
+		
+		// Translate to ground (ensure it sits on y=0)
+		translatedFrog := NewTranslation(rotatedFrogX, NewVec3(0, 0, 0))
+
+		world.Add(translatedFrog)
+	} else {
+		// Fallback: Green sphere
+		frogMat := NewLambertian(NewColor(0.2, 0.5, 0.2))
+		sphere := NewSphere(NewPoint3(0, 5, 0), 5.0, &frogMat)
+		world.Add(&sphere)
+	}
+
+	// Ground plane
+	groundMat := NewLambertian(NewColor(0.25, 0.15, 0.0))
+	ground := NewSphere(NewPoint3(0, -1000, 0), 1000, &groundMat)
+	world.Add(&ground)
+
+	// Sun light
+	sunKey := NewDiffuse_light(NewColor(10, 10, 10))
+	sun := NewSphere(NewPoint3(50, 100, 50), 10, &sunKey)
+	world.Add(&sun)
+
+	return world, cam
 }
