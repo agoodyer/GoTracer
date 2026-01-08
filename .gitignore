@@ -3,4 +3,6 @@
 *.png 
 *.stl
 !assets/*.png
+!wasm/assets/*.stl
+
 
