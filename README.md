@@ -10,6 +10,12 @@
 
 GoTracer is a physically-based renderer that transforms mathematical descriptions of 3D scenes into high-fidelity images. By leveraging Go’s world-class concurrency primitives and advanced spatial partitioning, GoTracer achieves professional-grade performance without a single external dependency.
 
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/Go-1.18%2B-blue" alt="Go Version">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="Platform">
+</p>
+
 ---
 
 ## ✨ Key Features
