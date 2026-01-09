@@ -1,5 +1,10 @@
-
-# 🌌 GoTracer
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="web/pyramid_white.svg">
+    <img alt="GoTracer Logo" src="web/pyramid_black.svg" width="35" valign="middle">
+  </picture>
+  GoTracer
+</h1>
 
 **A high-performance, concurrent 3D raytracing engine built entirely with the Go Standard Library.**
 
