@@ -1,7 +1,7 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="web/pyramid.svg">
-    <img alt="GoTracer Logo" src="web/pyramid_black.svg" width="35" valign="middle">
+    <source media="(prefers-color-scheme: dark)" srcset="web/pyramid_white.svg">
+    <img alt="GoTracer Logo" src="web/pyramid.svg" width="35" valign="middle">
   </picture>
   GoTracer
 </h1>
