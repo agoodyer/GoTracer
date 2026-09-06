@@ -1,133 +1,98 @@
-<h1 align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="web/pyramid_white.svg">
-    <img alt="GoTracer Logo" src="web/pyramid.svg" width="35" valign="middle">
-  </picture>
-  GoTracer
-</h1>
+# GoTracer
 
-**A high-performance, concurrent 3D raytracing engine built entirely with the Go Standard Library.**
+GoTracer is a small path tracer written in Go. It renders scenes natively to PNG and also runs in the browser through WebAssembly.
 
-GoTracer is a physically-based renderer that transforms mathematical descriptions of 3D scenes into high-fidelity images. By leveraging Go’s world-class concurrency primitives and advanced spatial partitioning, GoTracer achieves professional-grade performance without a single external dependency.
+**[Try the browser demo](https://agoodyer.github.io/GoTracer/)**
 
-<p align="center">
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/Go-1.18%2B-blue" alt="Go Version">
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="Platform">
-</p>
+![A glass sphere, textured spheres, and diffuse objects rendered by GoTracer](sample_renders/sphere_scene.png)
 
----
+## Why I built it
 
-## ✨ Key Features
+I wanted a project that would force me to learn Go through a problem with plenty of room for iteration. Ray tracing was a good fit: the first image only needs a little vector math, but realistic materials, meshes, acceleration structures, and parallel rendering each introduce a new problem to work through.
 
-* **⚡ Concurrency-First Architecture:** Utilizes Goroutines to parallelize ray casting across all available CPU cores, resulting in massive rendering speedups.
-* **🚀 BVH Acceleration:** Implements **Bounding Volume Hierarchies** to reduce ray-object intersection tests from  to , enabling the rendering of complex scenes with thousands of objects.
-* **💎 Realistic Materials:** * **Lambertian (Matte):** For soft, diffused surfaces.
-* **Metal:** Supports adjustable fuzziness for polished or brushed finishes.
-* **Dielectric (Glass):** Realistic refraction and reflection using Schlick's approximation.
+The project began as a native renderer based loosely on [_Ray Tracing in One Weekend_](https://raytracing.github.io/books/RayTracingInOneWeekend.html). I later added STL loading and a browser interface so the renderer could be explored without installing anything.
 
+## What it can render
 
-* **📸 Advanced Camera System:** Features adjustable Field of View (FOV), focus distance, and aperture for cinematic **Depth of Field** effects.
-* **🛠 Zero Dependencies:** Built using only the `math`, `image`, and `os` packages from the Go Standard Library.
+- Spheres, quads, boxes, and triangle meshes loaded from ASCII or binary STL files
+- Diffuse, metallic, dielectric, and emissive materials
+- Solid-colour, checkerboard, and image textures
+- Reflections, refractions, soft shadows, anti-aliasing, and depth of field
+- Translated and rotated objects
+- Several ready-made scenes, including a Cornell box, textured planets, and an STL frog
 
----
+The renderer uses only the Go standard library. The web build uses the same rendering packages as the native program, compiled to WebAssembly.
 
-## 🖼 Gallery
+## How it works
 
-| **3D Mesh Scene** | **Earth and Moon Scene** |
+Each pixel is estimated by tracing jittered camera rays into the scene. A ray can miss, hit an emissive surface, or scatter according to the material it reaches. The renderer follows those scattered rays recursively until they leave the scene or reach the configured bounce limit, then averages multiple samples to reduce noise.
+
+Every renderable object implements the same intersection interface. GoTracer groups those objects in a bounding volume hierarchy (BVH), recursively splitting them along the longest axis of their combined bounding box. During a render, a ray can reject whole branches of the hierarchy before running the more expensive shape or triangle intersection tests.
+
+The native renderer divides the image into 24 horizontal chunks and processes them with goroutines. The browser build takes a different approach: JavaScript requests small batches of work from the WebAssembly module, updates the canvas between batches, and yields to the browser so progress and cancellation remain responsive.
+
+## Sample renders
+
+| STL mesh | Earth and Moon |
 | :---: | :---: |
-| <img src="/sample_renders/mesh_scene.png" width="400"> | <img src="/sample_renders/earth_scene.png" width="400"> |
-| *High-poly mesh rendering with smooth shading and cloud-volumetric background.* | *Texture mapping and spherical projection featuring Earth and Moon coordinates.* |
-| **Glass Balls** | **Cornell Box** |
-| <img src="/sample_renders/sphere_scene.png" width="400"> | <img src="/sample_renders/cornell_box_scene.png" width="400"> |
-| *Recursive ray-tracing demonstrating reflection, refraction, and Fresnel effects.* | *Global illumination test featuring area lighting and soft shadows.* |
+| ![An STL mesh rendered with a reflective material](sample_renders/mesh_scene.png) | ![Textured Earth and Moon spheres](sample_renders/earth_scene.png) |
+| Glass and metal | Cornell box |
+| ![Glass, metal, and diffuse spheres](sample_renders/sphere_scene.png) | ![A Cornell box scene with coloured walls and boxes](sample_renders/cornell_box_scene.png) |
 
-## 🚀 Getting Started
+## Profiling the renderer
 
-### Prerequisites
+Ray tracing spends most of its time answering the same question: what does this ray hit next? I used Go's `pprof` tooling to inspect that path while rendering a high-resolution STL scene. The checked-in profile shows the cost concentrated in recursive ray traversal, axis-aligned bounding-box checks, and triangle intersections.
 
-* [Go](https://golang.org/doc/install) 1.18 or higher.
+![CPU profile from a high-resolution STL render](sample_renders/cpu_profiling.svg)
 
-### Installation
+The repository does not currently include a repeatable benchmark harness, so performance numbers are deliberately not presented as a portable comparison. Render time depends heavily on the selected scene, image size, samples per pixel, bounce depth, and machine.
 
-```bash
+## Run it locally
+
+GoTracer targets Go 1.21.4 or newer and has no third-party dependencies.
+
+Clone the repository and render the default scene:
+
+```sh
 git clone https://github.com/agoodyer/GoTracer.git
 cd GoTracer
-
+go run .
 ```
 
-### Running the Tracer
+The native entry point selects a scene in [`main.go`](main.go) and writes the finished image to `output.png`.
 
-Generate a render using the default scene configuration:
+To build and serve the browser version:
 
-```bash
-go run main.go
-
+```sh
+make serve
 ```
 
-The output will be saved as `output.png` (or `.ppm`) in the project root.
+Then open <http://localhost:8080>. The demo exposes six scenes and controls for image width, samples per pixel, and maximum bounce depth.
 
----
+Useful checks:
 
-## 📈 Performance Benchmarks
+```sh
+go test ./...
+go vet ./...
+make wasm
+```
 
-GoTracer was designed with a focus on optimization. By combining Go's concurrency model with BVH, we achieved a **36x speedup** over a naive single-threaded approach.
+There is not yet an automated test suite; the first command currently acts as a compile check across the packages.
 
-| Method | Scene Complexity | Time to Render |
-| --- | --- | --- |
-| Single-Threaded (Naive) | 500 Spheres | 12m 45s |
-| **GoTracer (BVH + Concurrency)** | **500 Spheres** | **0m 21s** |
+## Repository map
 
----
+- `common/` — vectors, rays, colours, intervals, and shared math
+- `material/` — materials, textures, hittable collections, bounding boxes, and the BVH
+- `objects/` — cameras, geometric primitives, transforms, and STL parsing
+- `scenes/` — native scene definitions
+- `wasm/` — browser-facing renderer and embedded demo assets
+- `web/` — the static interface deployed to GitHub Pages
+- `sample_renders/` — example output and the saved CPU profile
 
-## 🛠 Project Structure
+## Status
 
-* `/pkg/vec3`: Custom 3D vector math library.
-* `/pkg/hittable`: Intersection logic for spheres and BVH nodes.
-* `/pkg/material`: Material properties and scattering functions.
-* `/pkg/camera`: Viewport and ray generation logic.
-* `main.go`: Scene setup and the concurrent rendering loop.
+This is a personal learning project rather than a general-purpose rendering library. Native scene selection and render settings are configured in code, and the worker count is currently fixed rather than selected from the host at runtime. The browser demo is the easiest way to explore the renderer as it stands.
 
----
+## License
 
-## ⚡ Performance & CPU Profiling
-
-Raytracing is a computationally intensive task where performance is the primary constraint. To ensure **GoTracer** scales effectively, I utilized Go's built-in `pprof` suite to analyze execution hot paths and optimize the rendering pipeline.
-
-### 🔍 Profiling Insights
-The following call graph represents a high-resolution render of an STL mesh. By analyzing the stack, we can make several key observations about the engine's behavior:
-
-* **Collision Bottlenecks:** As expected in a recursive raytracer, **96.7%** of CPU time is spent within the `ray_color` and `material.Bvh.Hit` stack.
-* **BVH Efficiency:** The `material.(*Aabb).Hit` function accounts for **45.50%** of total execution time. This confirms that the Bounding Volume Hierarchy is successfully offloading the heavy lifting of intersection testing by performing rapid interval checks before attempting expensive triangle-mesh intersections.
-* **Triangle Intersections:** The `objects.(*Tri).Hit` logic accounts for **26.18%** of the time, representing the actual barycentric coordinate calculations.
-* **Compiler Optimization:** Several low-level math operations (such as `common.Dot`, `math.Abs`, and `common.(*Ray).At`) are marked as **(inline)**. This indicates that the Go compiler has successfully optimized these leaf functions, removing function-call overhead in the innermost loops.
-
-<p align="center">
-  <img src="sample_renders/cpu_profiling.svg" alt="CPU Profiling Call Graph" width="600">
-</p>
-
----
-
-## 🗺 Roadmap
-
-* [x] **Texture Mapping:** Support for image textures and procedural patterns (Perlin noise).
-* [x] **Triangle Meshes:** Support for `.obj` file loading.
-* [x] **Light Sources:** Implement emissive materials for true area lighting.
-* [x] **Motion Blur:** Support for moving objects during the exposure interval.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Whether it's optimizing the renderer or adding new shapes, feel free to fork the repo and submit a PR.
-
-## ⚖️ License
-
-Distributed under the MIT License. See [LICENSE](./LICENSE) for more information.
-
----
-
-**Developed by [Aidan Goodyer](https://github.com/agoodyer)**
-
----
-
+[MIT](LICENSE)
